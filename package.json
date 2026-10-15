@@ -1,0 +1,31 @@
+{
+  "name": "cute-pixel-widget",
+  "version": "1.0.0",
+  "description": "Desktop couple widget for Bubu and Dudu",
+  "author": "Couple",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:bubu": "electron . --bubu",
+    "server": "node server.js",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.couple.widgets",
+    "productName": "CoupleWidgets",
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5"
+  }
+}

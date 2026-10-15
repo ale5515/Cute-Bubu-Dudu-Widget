@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bubu Pixel Widget</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+  <style>
+    html, body {
+      background: transparent;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    /* Electron Draggable Handle */
+    .drag-region {
+      -webkit-app-region: drag;
+    }
+
+    /* Non-draggable interactive areas */
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    img {
+      image-rendering: pixelated;
+    }
+
+    .pixel-box {
+      background: #ffffff;
+      border: 2px solid #000000;
+      box-shadow: 2px 2px 0px #000000;
+      border-radius: 0px;
+    }
+
+    .pixel-btn {
+      background: #f5f5f5;
+      border: 2px solid #000000;
+      box-shadow: 2px 2px 0px #000000;
+      border-radius: 0px;
+      transition: transform 0.05s ease;
+    }
+
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 0px 0px 0px #000000;
+    }
+
+    @keyframes floatHeart {
+      0% { transform: translateY(0px) scale(0.8); opacity: 1; }
+      50% { transform: translateY(-45px) scale(1.3); opacity: 0.95; }
+      100% { transform: translateY(-90px) scale(1.1); opacity: 0; }
+    }
+
+    .floating-heart {
+      position: absolute;
+      animation: floatHeart 1.4s forwards steps(10, end);
+      pointer-events: none;
+      z-index: 50;
+      font-size: 28px;
+      color: #ff0000;
+      text-shadow: 2px 2px 0px #000000;
+    }
+
+    @keyframes bounceShake {
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      25% { transform: scale(1.1) rotate(-5deg); }
+      75% { transform: scale(1.1) rotate(5deg); }
+    }
+
+    .poke-anim {
+      animation: bounceShake 0.4s ease-in-out;
+    }
+  </style>
+</head>
+<body class="flex justify-start items-end p-2 h-screen w-screen">
+
+  <div id="particle-container" class="absolute inset-0 pointer-events-none z-30"></div>
+
+  <div class="flex flex-col items-start gap-1 relative">
+    
+    <!-- DRAG HANDLE BAR: Click and drag this small bar to move the Bubu window -->
+    <div class="drag-region pixel-box w-[120px] h-4 bg-gray-100 hover:bg-gray-200 cursor-move flex items-center justify-center text-[5px] text-black font-bold mb-1 shadow-none">
+      :: DRAG BUBU ::
+    </div>
+
+    <!-- Pixel Chat Box -->
+    <div id="chat-box" class="no-drag hidden pixel-box p-2 w-[210px] flex flex-col gap-1.5 z-40">
+      <div id="chat-history" class="max-h-[50px] overflow-y-auto text-[7px] text-gray-800 flex flex-col gap-1 pr-1">
+        <span class="text-gray-400 italic">No messages yet...</span>
+      </div>
+      <div class="flex gap-1">
+        <input id="chat-input" type="text" placeholder="Type..." maxlength="35" class="w-full pixel-box px-1.5 py-1 text-[7px] outline-none" onkeydown="handleChatKey(event)">
+        <button onclick="sendChatMessage()" class="pixel-btn px-2 py-1 text-[7px] font-bold">SEND</button>
+      </div>
+    </div>
+
+    <!-- Speech Bubble / Main Row -->
+    <div class="flex items-end gap-2">
+      <!-- Pixel Speech Bubble -->
+      <div id="speech-bubble" class="no-drag pixel-box px-2 py-1.5 text-[8px] text-black mb-2 max-w-[170px] text-center relative cursor-pointer" onclick="toggleChat()" title="Click to open chat">
+        <div class="flex items-center justify-center gap-1.5 mb-1.5 border-b border-black pb-1 text-[7px]">
+          <span id="status-dot" class="inline-block w-2 h-2 bg-red-500 border border-black"></span>
+          <span id="partner-status-label" class="text-black font-bold">DUDU OFFLINE</span>
+        </div>
+        <span id="status-text" class="leading-tight block">Hi Dudu! 💕</span>
+        <div class="absolute -bottom-1.5 right-3 w-2 h-2 bg-white border-r-2 border-b-2 border-black rotate-45"></div>
+      </div>
+
+      <!-- Character Avatar & Controls Column -->
+      <div class="flex flex-col items-center gap-1">
+        <div class="no-drag flex gap-1">
+          <button onclick="sendHeart()" class="pixel-btn text-[7px] px-1.5 py-0.5 font-bold" title="Send Heart"><span style="color: #ff0000;">♥</span></button>
+          <button onclick="toggleChat()" class="pixel-btn text-[7px] px-1.5 py-0.5 font-bold" title="Toggle Chat">💬</button>
+          <button onclick="closeWidget()" class="pixel-btn bg-red-400 hover:bg-red-500 text-white text-[7px] px-1.5 py-0.5 font-bold" title="Close Widget">X</button>
+        </div>
+        
+        <div id="pet-avatar" class="no-drag cursor-pointer relative" onclick="sendPoke()">
+          <img id="character" src="dudu11.gif" alt="Bubu Pet" style="width: 70px; height: auto;" />
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const socket = io('http://localhost:3000');
+    const myName = 'Bubu';
+    const partnerName = 'Dudu';
+
+    socket.on('connect', () => {
+      socket.emit('register_user', { character: 'bubu', name: myName, status: 'Active' });
+    });
+
+    socket.on('presence_update', (users) => {
+      const partner = users.find(u => u.id !== socket.id);
+      const dot = document.getElementById('status-dot');
+      const label = document.getElementById('partner-status-label');
+
+      if (partner) {
+        dot.className = "inline-block w-2 h-2 bg-green-500 border border-black animate-pulse";
+        label.innerText = `${partnerName.toUpperCase()} ONLINE`;
+      } else {
+        dot.className = "inline-block w-2 h-2 bg-red-500 border border-black";
+        label.innerText = `${partnerName.toUpperCase()} OFFLINE`;
+      }
+    });
+
+    function toggleChat() {
+      const chatBox = document.getElementById('chat-box');
+      chatBox.classList.toggle('hidden');
+      if (!chatBox.classList.contains('hidden')) {
+        document.getElementById('chat-input').focus();
+      }
+    }
+
+    socket.on('receive_chat', (data) => {
+      const sender = data.sender || partnerName;
+      appendMessage(sender, data.message);
+      document.getElementById('status-text').innerText = `${sender}: ${data.message}`;
+      triggerAnimation();
+    });
+
+    socket.on('receive_heart', (data) => {
+      const sender = data.sender || partnerName;
+      spawnHeartParticle();
+      document.getElementById('status-text').innerHTML = `${sender} sent love! <span style="color: #ff0000;">♥</span>`;
+      triggerAnimation();
+    });
+
+    socket.on('receive_poke', (data) => {
+      const sender = data.sender || partnerName;
+      document.getElementById('status-text').innerText = `${sender} poked you! 👉`;
+      triggerAnimation();
+    });
+
+    function sendHeart() {
+      spawnHeartParticle();
+      socket.emit('send_heart', { sender: myName, count: 1 });
+      document.getElementById('status-text').innerHTML = `Bubu sent love! <span style="color: #ff0000;">♥</span>`;
+    }
+
+    function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      appendMessage(myName, msg);
+      socket.emit('send_chat', { sender: myName, message: msg });
+      document.getElementById('status-text').innerText = `${myName}: ${msg}`;
+      input.value = '';
+    }
+
+    function handleChatKey(event) {
+      if (event.key === 'Enter') { sendChatMessage(); }
+    }
+
+    function appendMessage(sender, text) {
+      const history = document.getElementById('chat-history');
+      if (history.children.length === 1 && history.children[0].tagName === 'SPAN') {
+        history.innerHTML = '';
+      }
+      const div = document.createElement('div');
+      div.innerHTML = `<b>${sender}:</b> ${text}`;
+      history.appendChild(div);
+      history.scrollTop = history.scrollHeight;
+    }
+
+    function sendPoke() {
+      triggerAnimation();
+      socket.emit('send_poke', { sender: myName, action: 'poke' });
+      document.getElementById('status-text').innerText = "Poked Dudu! 🐾";
+    }
+
+    function triggerAnimation() {
+      const avatar = document.getElementById('pet-avatar');
+      avatar.classList.remove('poke-anim');
+      void avatar.offsetWidth;
+      avatar.classList.add('poke-anim');
+    }
+
+    function spawnHeartParticle() {
+      const container = document.getElementById('particle-container');
+      const heart = document.createElement('div');
+      heart.className = 'floating-heart';
+      heart.innerText = '♥';
+      heart.style.left = '35px';
+      heart.style.bottom = '50px';
+      container.appendChild(heart);
+      setTimeout(() => heart.remove(), 1400);
+    }
+
+    function closeWidget() {
+      try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.send('close-window');
+      } catch (e) {
+        window.close();
+      }
+    }
+  </script>
+</body>
+</html>
